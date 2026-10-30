@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release:
-    if: github.repository == 'YuJunZhiXue/dsh-purge'
+    if: github.repository == '54zhien/dsh-purge-plus'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
