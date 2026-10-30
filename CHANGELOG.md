@@ -1,4 +1,4 @@
-# 变更记录 / Changelog
+﻿# 变更记录 / Changelog
 
 对照基线：**1.2.0**（上游最后一代，`dshTarget: 0.2.1-rc.2`）。
 本文件只记 1.3.x / 1.4.x 分支相对 1.2.0 的**新增、优化、修复**，以及会影响到你的行为变化。
@@ -6,6 +6,63 @@
 Baseline: **1.2.0**. Everything below is what this fork adds, improves, or fixes on top of it.
 
 ---
+
+## 1.5.0 — 合并上游 1.1.83 的独有能力
+
+本版把上游 `YuJunZhiXue/dsh-purge` 1.1.83（2026-10-30）里**本分支没有**的东西并进来，1.4.x 的设置页 / 审计 / 加固内核 / armor 提示词全部保留不动。
+
+### 新增：证据账本与未知登记（`lib/redteam/evidence-ledger.mjs`）
+
+移植上游的 `EvidenceLedger` / `UnknownRegistry`，并接进 `lib/redteam/tools.js`，新增 **8 个工具**：
+
+| 工具 | 作用 |
+| --- | --- |
+| `redteam_evidence_record` | 记一条作战证据，`ev_id = "ev_" + sha256(规范化语义)`，改一字哈希就变 |
+| `redteam_evidence_verify` | 按语义重算哈希，核对「子智能体说的」和「库里记的」是不是同一条 |
+| `redteam_evidence_upgrade` | `claimed` / `inferred` 核实后升级为 `observed` |
+| `redteam_evidence_list` | 按置信度 / 权威 / 靶标列出证据 |
+| `redteam_unknown_record` | 记「还没打完、证据不足」的问题 |
+| `redteam_unknown_resolve` | 收口（`resolved` / `contradicted` / `withdrawn`） |
+| `redteam_unknown_list` | 列出未收口问题 |
+| `redteam_unverified_count` | 未核实证据计数（指挥智能体的收口闸门） |
+
+红队工具总数 56 → **64**。冒烟测试 `test/evidence-ledger.mjs`：落库、幂等去重、哈希核对、升级、未知登记与收口全通过。
+
+### 新增：用户层 profile 自愈（`lib/profile-insert.js`）
+
+上游把「本体 insert 写用户层 profile」拆成了独立模块，本版沿用它的实现，在 `apply()` 启动、`update.js` 升级成功后各调一次 `ensureAllProfileInstall()`：
+
+- **#185**：`pnpm-workspace.yaml` 的 `allowBuilds` 只写裸包名 `dsh-purge`。pnpm 11 把 `dsh-purge@https://…` 当版本联合解析，直接 `ERR_PNPM_INVALID_VERSION_UNION` 崩掉 install；历史 URL 键 / 截断键 / 版本键一律清掉，非本插件的键原样保留。
+- **#191**：宿主生成的 profile 层 `cordis.patch.yml` 可能只有一个空 flow 序列 `[]`，那是完整 YAML 文档，再追加 `- insert:` 会变第二个文档、宿主解析失败。现在按形态分支：`[]` → 替换该行；空文件/只有注释 → 直接写；正常块序列 → 照旧追加；认不准的非空 flow 序列 → 不动并返回 `{ ok: false, wrote: false }`。
+- 顺带补 `dsh.profile.bundles` 里缺失的 `dsh-purge` 行。
+
+### 新增：停用/卸载收口（`lib/preset-default.js`）
+
+`selectedDefault` 指向本插件预设时，宿主 `resolve()` 对未知预设是**硬抛**（#108）。现在：
+
+- `enabled: false` → 立即清 `selectedDefault` + 移除遗留 `redteam` 预设目录；
+- 插件 dispose（`ctx.effect`）→ 延迟清一次；
+- 卸载流程（`lib/uninstall.js`）→ 写进卸载报告 `presetDefault` / `stalePresetDir`。
+
+### 新增：apply 进度（`lib/apply-progress.js`）
+
+`/dsh-purge/status` 多一个 `progress` 字段（`active / stage / applied / total / startedAt / error`）；`/dsh-purge/apply` 在真正开始打补丁前置 `beginApply("home")`，分阶段 `setApplyProgress({stage})`，成功 `endApply({ok:true})`、异常 `endApply({ok:false,error})`。内存态，不落盘。
+
+### 保留不动（上游没有、本分支独有）
+
+设置页 `settings.section`（order 450，破甲/规则/技能/演练台四段）、`purge_audit` + `audit.jsonl` + `approvalMode`、`json-safe` / `host-lease` / `revision` / `tool-gate`、`cwd-variable` 三层兜底、破甲内核 v3、armor 头尾两段（`Authority and precedence` / `Final gate`，23 698 字符）、随包 22 个红队技能、`scripts/compat-check.mjs`。
+
+### 验证
+
+```
+node test/gate.mjs            -> ALL PASS (71 passed)
+node test/cwd-variable.mjs    -> ALL PASS (21 passed)
+node test/evidence-ledger.mjs  -> SMOKE OK
+node --check lib/{index,uninstall,update,profile-insert,preset-default,apply-progress}.js  -> 全部 OK
+```
+
+---
+
 
 ## 1.4.1 — 修「装完就用不了」的 cwd 变量崩溃
 
